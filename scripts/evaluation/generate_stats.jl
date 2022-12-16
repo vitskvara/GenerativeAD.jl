@@ -23,9 +23,16 @@ s = ArgParseSettings()
 		arg_type = String
 		default = "evaluation/images"
 		help = "Data prefix of generated files."
+	"--old_protocol"
+		action = :store_true
+		help = "Use the old evaluation protocol."
 	"-f", "--force"
     	action = :store_true
 		help = "Overwrite all generated files."
+	"--load-all"
+		action = :store_true
+		help = "Load files from all levels of source."
+		dest_name = "load_all"
 end
 
 """
@@ -36,14 +43,17 @@ computes evaluation metrics and stores results in datadir prefix `target_prefix`
 while retaining the folder structure. If `force=true` the function overwrites 
 already precomputed results. 
 """
-function generate_stats(source_prefix::String, target_prefix::String; force=true)
+function generate_stats(source_prefix::String, target_prefix::String; old_protocol=false,
+ force=true, ignore_higher=true)
 	(source_prefix == target_prefix) && error("Results have to be stored in different folder.")
 	
 	source = datadir(source_prefix)
 	@info "Collecting files from $source folder."
-	files = GenerativeAD.Evaluation.collect_files_th(source)
+	files = GenerativeAD.Evaluation.collect_files_th(source; ignore_higher=ignore_higher)
 	# filter out model files
 	filter!(x -> !startswith(basename(x), "model"), files)
+	filter!(x -> !occursin(".pth", basename(x)), files)
+
 	@info "Collected $(length(files)) files from $source folder."
 	# it might happen that when appending results some of the cores just go over already computed files
 	files = files[randperm(length(files))]
@@ -54,7 +64,7 @@ function generate_stats(source_prefix::String, target_prefix::String; force=true
 		try
 			if (isfile(target) && force) || ~isfile(target)
 				r = load(f)
-				df = GenerativeAD.Evaluation.compute_stats(r)
+				df = GenerativeAD.Evaluation.compute_stats(r; top_metrics_new=!old_protocol)
 				wsave(target, Dict(:df => df))
 				@info "Saving evaluation results at $(target)"
 			end
@@ -71,8 +81,10 @@ end
 function main(args)
 	generate_stats(
 		args["source_prefix"], 
-		args["target_prefix"]; 
-		force=args["force"])
+		args["target_prefix"];
+		old_protocol=args["old_protocol"],
+		force=args["force"],
+		ignore_higher=!args["load_all"])
 	@info "---------------- DONE -----------------"
 end
 

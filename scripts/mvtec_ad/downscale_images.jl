@@ -16,4 +16,5 @@ function downscale_data(category, size)
 	@info "saved to $fname"
 end
 
-map(f->map(c->downscale_data(c,f), ["wood", "transistor", "grid"]), [256, 128, 64, 32])
+map(f->map(c->downscale_data(c,f), ["wood", "transistor", "grid", "bottle", "metal_nut", "pill", 
+	"capsule"]), [256, 128, 64, 32])

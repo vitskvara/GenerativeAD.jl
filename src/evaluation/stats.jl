@@ -11,6 +11,8 @@ const PAT_METRICS = ["pat_001", "pat_01", "pat_1", "pat_5", "pat_10", "pat_20"]
 const PATN_METRICS = ["patn_5", "patn_10", "patn_50", "patn_100", "patn_500", "patn_1000"]
 const PAC_METRICS = ["pac_5", "pac_10", "pac_50", "pac_100", "pac_500", "pac_1000"]
 const TRAIN_EVAL_TIMES = ["fit_t", "tr_eval_t", "tst_eval_t", "val_eval_t"]
+const AUC_METRICS = ["auc_100", "auc_50", "auc_20", "auc_10", "auc_5", "auc_2", 
+	"auc_1", "auc_05", "auc_02", "auc_01"]
 
 """
 	_prefix_symbol(prefix, s)
@@ -19,6 +21,71 @@ Modifies symbol `s` by adding `prefix` with underscore.
 """
 _prefix_symbol(prefix, s) = Symbol("$(prefix)_$(s)")
 
+"""
+	_subsample_data(p, p_normal, labels, data; seed=nothing)
+
+p is the amount of anomalies to include in the evaluation
+1.0 means that the same number of normal and anomalous data is used
+p_normal is the amount of normal data to use
+"""
+function _subsample_data(p, p_normal, labels, data; seed=nothing)
+	# set seed
+	isnothing(seed) ? nothing : Random.seed!(seed) 
+
+	# first sample the normal data
+	nn = Int(length(labels) - sum(labels))
+	pnn = floor(Int, p_normal*nn)
+	ninds = sample(1:nn, pnn, replace=false)
+	bin_ninds = Bool.(zeros(nn))
+	bin_ninds[ninds] .= true
+
+	# then sample the anomalous data
+	na = Int(sum(labels))
+	pna = floor(Int, p*pnn)
+	if pna > na
+		throw(DomainError(p, " not enough anomalies on this threshold - $pna requested, $na available."))
+	end
+	ainds = sample(1:na, pna, replace=false)
+	bin_ainds = Bool.(zeros(na))
+	bin_ainds[ainds] .= true
+
+	# restart the seed
+	isnothing(seed) ? nothing : Random.seed!()
+
+	# put the labels together
+	inds = Bool.(zeros(length(labels)))
+	inds[labels .== 0] .= bin_ninds
+	inds[labels .== 1] .= bin_ainds
+
+	# just return the samples then
+	if ndims(data) == 1
+		return data[inds], labels[inds], collect(1:length(labels))[inds]
+	elseif ndims(data) == 2
+		return data[inds,:], labels[inds], collect(1:length(labels))[inds]
+	elseif ndims(data) == 3
+		return data[:,:,inds], labels[inds], collect(1:length(labels))[inds]
+	elseif ndims(data) == 4
+		return data[:,:,:,inds], labels[inds], collect(1:length(labels))[inds]
+	else
+		throw("Not implemented for bigger dimension than 4.")
+	end
+end
+
+"""
+	_auc_at_subsamples_anomalous(p, p_normal, labels, scores; seed = nothing)
+"""
+function _auc_at_subsamples_anomalous(p, p_normal, labels, scores; seed = nothing)
+	try
+		scores, labels, _ = _subsample_data(p, p_normal, labels, scores; seed=seed)
+	catch e 
+		return NaN
+	end
+	if sum(labels) == 0.0
+		return NaN
+	end
+	roc = EvalMetrics.roccurve(labels, scores)
+	return EvalMetrics.auc_trapezoidal(roc...)
+end
 
 """
 	_precision_at(p, labels, scores)
@@ -96,7 +163,7 @@ function _get_anomaly_class(r)
 end
 
 """
-	compute_stats(r::Dict{Symbol,Any}; top_metrics=true)
+	compute_stats(r::Dict{Symbol,Any}; top_metrics_new=true)
 
 Computes evaluation metrics from the results of experiment in serialized bson at path `f`.
 Returns a DataFrame row with metrics and additional metadata for groupby's.
@@ -104,7 +171,7 @@ Hash of the model's parameters is precomputed in order to make the groupby easie
 As there are additional modes of failure in computation of top metrics (`PAT_METRICS`,...),
 now there is option not to compute them by setting `top_metrics=false`.
 """
-function compute_stats(r::Dict{Symbol,Any}; top_metrics=true)
+function compute_stats(r::Dict{Symbol,Any}; top_metrics_new=true)
 	row = (
 		modelname = r[:modelname],
 		dataset = Symbol("dataset") in keys(r) ? r[:dataset] : "MVTec-AD_" * r[:category], # until the files are fixed
@@ -118,6 +185,7 @@ function compute_stats(r::Dict{Symbol,Any}; top_metrics=true)
 		npars = (Symbol("npars") in keys(r)) ? r[:npars] : 0
 	)
 	
+	max_seed = 10	
 	anomaly_class = _get_anomaly_class(r)
 	if anomaly_class != -1
 		row = merge(row, (anomaly_class = anomaly_class,))
@@ -170,8 +238,27 @@ function compute_stats(r::Dict{Symbol,Any}; top_metrics=true)
 					BASE_METRICS), 
 					[auc, auprc, tpr5, f5])...))
 
-			# compute precision on most anomalous samples
-			if top_metrics
+			# compute auc on a randomly selected portion of samples
+			if top_metrics_new && splt == "val"
+				max_seed = 10
+				auc_ano_100 = [mean([_auc_at_subsamples_anomalous(p/100, 1.0, labels, scores, seed=s) for s in 1:max_seed]) 
+					for p in [100.0, 50.0, 20.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1]]
+				row = merge(row, (;zip(_prefix_symbol.(splt, map(x->x * "_100", AUC_METRICS)), auc_ano_100)...))
+
+				auc_ano_50 = [mean([_auc_at_subsamples_anomalous(p/100, 0.5, labels, scores, seed=s) for s in 1:max_seed]) 
+					for p in [100.0, 50.0, 20.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1]]
+				row = merge(row, (;zip(_prefix_symbol.(splt, map(x->x * "_50", AUC_METRICS)), auc_ano_50)...))
+
+				auc_ano_10 = [mean([_auc_at_subsamples_anomalous(p/100, 0.1, labels, scores, seed=s) for s in 1:max_seed]) 
+					for p in [100.0, 50.0, 20.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1]]
+				row = merge(row, (;zip(_prefix_symbol.(splt, map(x->x * "_10", AUC_METRICS)), auc_ano_10)...))
+
+				prop_ps = [100, 50, 20, 10, 5, 2, 1]
+				auc_prop_100 = [mean([_auc_at_subsamples_anomalous(1.0, p/100, labels, scores, seed=s) for s in 1:max_seed]) 
+					for p in prop_ps]
+				row = merge(row, (;zip(_prefix_symbol.(splt, map(x-> "auc_100_$(x)", prop_ps)), auc_prop_100)...))
+			# the old way of splitting the samples
+			elseif !top_metrics_new
 				pat = [_precision_at(p/100.0, labels, scores) for p in [0.01, 0.1, 1.0, 5.0, 10.0, 20.0]]
 				row = merge(row, (;zip(_prefix_symbol.(splt, PAT_METRICS), pat)...))
 
@@ -211,15 +298,17 @@ Optional arg `min_samples` specifies how many seed/anomaly_class combinations sh
 in order for the hyperparameter's results be considered statistically significant.
 Optionally with argument `add_col` one can specify additional column to average values over.
 """
-function aggregate_stats_mean_max(df::DataFrame, criterion_col=:val_auc; 
+function aggregate_stats_mean_max(df::DataFrame, criterion_col=:val_auc;  agg_cols=[],
 							min_samples=("anomaly_class" in names(df) && maximum(df[:anomaly_class]) > 0) ? 10 : 3,
-							downsample=Dict(), add_col=nothing, verbose=true)
-	agg_cols = vcat(_prefix_symbol.("val", BASE_METRICS), _prefix_symbol.("tst", BASE_METRICS))
-	agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAT_METRICS), _prefix_symbol.("tst", PAT_METRICS))
-	agg_cols = vcat(agg_cols, _prefix_symbol.("val", PATN_METRICS), _prefix_symbol.("tst", PATN_METRICS))
-	agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAC_METRICS), _prefix_symbol.("tst", PAC_METRICS))
-	agg_cols = vcat(agg_cols, Symbol.(TRAIN_EVAL_TIMES))
-	agg_cols = (add_col !== nothing) ? vcat(agg_cols, add_col) : agg_cols
+							downsample=Dict(), add_col=nothing, verbose=true, dseed=40, topn=1)
+	if length(agg_cols) == 0 # use automatic agg cols
+		agg_cols = vcat(_prefix_symbol.("val", BASE_METRICS), _prefix_symbol.("tst", BASE_METRICS))
+		agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAT_METRICS), _prefix_symbol.("tst", PAT_METRICS))
+		agg_cols = vcat(agg_cols, _prefix_symbol.("val", PATN_METRICS), _prefix_symbol.("tst", PATN_METRICS))
+		agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAC_METRICS), _prefix_symbol.("tst", PAC_METRICS))
+		agg_cols = vcat(agg_cols, Symbol.(TRAIN_EVAL_TIMES))
+		agg_cols = (add_col !== nothing) ? vcat(agg_cols, add_col) : agg_cols
+	end
 	top10_std_cols = _prefix_symbol.(agg_cols, "top_10_std")
 
 	# agregate by seed over given hyperparameter and then choose best
@@ -228,7 +317,7 @@ function aggregate_stats_mean_max(df::DataFrame, criterion_col=:val_auc;
 		for (mkey, mg) in pairs(groupby(dg, :modelname))
 			n = length(unique(mg.phash))
 			# downsample models given by the `downsample` dictionary
-			Random.seed!(42)
+			Random.seed!(dseed)
 			pg = (mkey.modelname in keys(downsample)) && (downsample[mkey.modelname] < n) ? 
 					groupby(mg, :phash)[randperm(n)[1:downsample[mkey.modelname]]] : 
 					groupby(mg, :phash)
@@ -248,7 +337,8 @@ function aggregate_stats_mean_max(df::DataFrame, criterion_col=:val_auc;
 				
 				# sort by criterion_col
 				sort!(pg_agg, order(criterion_col, rev=true))
-				best = first(pg_agg, 1)
+				topn = min(size(pg_agg,1), topn)
+				best = pg_agg[topn:topn, :]
 
 				# add std of top 10 models metrics
 				best_10_std = combine(first(pg_agg, 10), agg_cols .=> std .=> top10_std_cols)
@@ -285,19 +375,23 @@ how many samples should be taken into acount. These are selected randomly with f
 As oposed to mean-max aggregation the output does not contain parameters and phash.
 Optionally with argument `add_col` one can specify additional column to average values over.
 """
-function aggregate_stats_max_mean(df::DataFrame, criterion_col=:val_auc; 
-									downsample=Dict(), add_col=nothing, verbose=true)
-	agg_cols = vcat(_prefix_symbol.("val", BASE_METRICS), _prefix_symbol.("tst", BASE_METRICS))
-	agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAT_METRICS), _prefix_symbol.("tst", PAT_METRICS))
-	agg_cols = vcat(agg_cols, _prefix_symbol.("val", PATN_METRICS), _prefix_symbol.("tst", PATN_METRICS))
-	agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAC_METRICS), _prefix_symbol.("tst", PAC_METRICS))
-	agg_cols = vcat(agg_cols, Symbol.(TRAIN_EVAL_TIMES))
-	agg_cols = (add_col !== nothing) ? vcat(agg_cols, add_col) : agg_cols
+function aggregate_stats_max_mean(df::DataFrame, criterion_col=:val_auc; agg_cols=[],
+									downsample=Dict(), add_col=nothing, verbose=true, 
+									dseed=40, topn=1, results_per_ac=false)
+	if length(agg_cols) == 0 # use automatic agg cols
+		agg_cols = vcat(_prefix_symbol.("val", BASE_METRICS), _prefix_symbol.("tst", BASE_METRICS))
+		agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAT_METRICS), _prefix_symbol.("tst", PAT_METRICS))
+		agg_cols = vcat(agg_cols, _prefix_symbol.("val", PATN_METRICS), _prefix_symbol.("tst", PATN_METRICS))
+		agg_cols = vcat(agg_cols, _prefix_symbol.("val", PAC_METRICS), _prefix_symbol.("tst", PAC_METRICS))
+		agg_cols = vcat(agg_cols, Symbol.(TRAIN_EVAL_TIMES))
+		agg_cols = (add_col !== nothing) ? vcat(agg_cols, add_col) : agg_cols
+	end
 	top10_std_cols = _prefix_symbol.(agg_cols, "top_10_std")
 
 	agg_keys = ("anomaly_class" in names(df)) ? [:seed, :anomaly_class] : [:seed]
 	# choose best for each seed/anomaly_class cobination and average over them
 	results = []
+	results_pac = []
 	for (dkey, dg) in pairs(groupby(df, :dataset))
 		for (mkey, mg) in pairs(groupby(dg, :modelname))
 			partial_results = []
@@ -321,14 +415,15 @@ function aggregate_stats_max_mean(df::DataFrame, criterion_col=:val_auc;
 			for (skey, sg) in pairs(groupby(mg, agg_keys))
 				n = nrow(sg)
 				# downsample the number of hyperparameter if needed
-				Random.seed!(42)
+				Random.seed!(dseed)
 				ssg = (mkey.modelname in keys(downsample)) && (downsample[mkey.modelname] < n) ? 
 						sg[randperm(n)[1:downsample[mkey.modelname]], :] : sg
 				Random.seed!()
 				
 				sssg = sort(ssg, order(criterion_col, rev=true))
 				# best hyperparameter after sorting by criterion_col
-				best = first(sssg, 1)
+				topn = min(size(sssg,1), topn)
+				best = sssg[topn:topn,:]
 				
 				# add std of top 10 models metrics
 				best_10_std = combine(first(sssg, 10), agg_cols .=> std .=> top10_std_cols)
@@ -338,6 +433,7 @@ function aggregate_stats_max_mean(df::DataFrame, criterion_col=:val_auc;
 			end
 
 			best_per_seed = reduce(vcat, partial_results)
+			push!(results_pac, best_per_seed)
 			# average over seed-anomaly_class groups
 			best = combine(best_per_seed,  
 						agg_cols .=> mean .=> agg_cols, 
@@ -351,5 +447,9 @@ function aggregate_stats_max_mean(df::DataFrame, criterion_col=:val_auc;
 			push!(results, best)
 		end
 	end
-	vcat(results...)
+	if results_per_ac
+		return vcat(results...), vcat(results_pac...)
+	else
+		return vcat(results...)
+	end
 end

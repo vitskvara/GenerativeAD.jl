@@ -21,26 +21,27 @@ collect_files(target) = collect_files!(target, String[])
 
 
 """
-	collect_files_th(target)
+	collect_files_th(target; ignore_higher=true)
 
 Multithreaded version of recursive file collection. 
 Does not have as many checks as th single threaded.
 May not perform as well on some configurations.
 Using @threads inside recursion may not be the best idea.
+If `ignore_higher=true`, then this only collects the files 
+from the lowest level of the dir system.
 """
-function collect_files_th(target::String)
+function collect_files_th(target::String; ignore_higher=true)
     files = readdir(target, join=true)
     if all(isfile.(files))
-        println(target)
         return files
     end
     results = Vector{Vector{String}}(undef, length(files))
     @threads for i in 1:length(files)
-        # ignore any file that lives alongside a folder
         if !isfile(files[i])
-            results[i] = collect_files_th(files[i])
+            results[i] = collect_files_th(files[i]; ignore_higher=ignore_higher)
         else
-            results[i] = String[]
+            # ignore any file that lives alongside a folder
+            results[i] = ignore_higher ? String[] : [files[i]]
         end
     end
     reduce(vcat, results)

@@ -20,6 +20,9 @@ s = ArgParseSettings()
 		arg_type = String
 		default = "evaluation/images_eval.bson"
 		help = "Where to store the cached DataFrame."
+	"--postprocess"
+		action = :store_true
+		help = "convert tuple parameters to strings for faster loading times"
 	"-f", "--force"
     	action = :store_true
 		help = "Overwrite all generated files."
@@ -48,9 +51,26 @@ function collect_stats(source_prefix::String)
 	df = reduce(vcat, frames)
 end
 
+# this is mainyl used for alpha evaluation results
+function postprocess(df)
+	parameters = df.parameters
+	df.parameters = savename.(parameters)
+	df.weights_texture = [get(p, :weights_texture, NaN) for p in parameters]
+	df.init_alpha = [get(p, :init_alpha, NaN) for p in parameters]
+	df.alpha0 = [get(p, :alpha0, NaN) for p in parameters]
+
+	# delete nan columns
+	for col in names(df)
+		if occursin("auc", col) && all(isnan.(df[col]))
+			df = df[:,[p for p in names(df) if p != col]]
+		end
+	end
+	df
+end
 
 function main(args)
 	df = collect_stats(args["source_prefix"])
+	df = args["postprocess"] ? postprocess(df) : df
 	f = datadir(args["filename"])
 	if (isfile(f) && args["force"]) || ~isfile(f)
 		@info "Saving $(nrow(df)) rows to $f."

@@ -1,5 +1,5 @@
 # GenerativeAD.jl
-Generative models for anomaly detection. This Julia package contains code for the paper "Comparison of Anomaly Detectors: Context Matters" [arXiv preprint](https://arxiv.org/abs/2012.06260).
+This Julia package contains code for running and evaluating anomaly detection models.
 
 ## Installation
 1. Clone this repo somewhere.

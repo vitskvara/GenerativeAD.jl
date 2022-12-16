@@ -37,7 +37,7 @@ cont_string = (contamination == 0.0) ? "" : "_contamination-$contamination"
 #######################################################################################
 ################ THIS PART IS TO BE PROVIDED FOR EACH MODEL SEPARATELY ################
 modelname = "sgvaegan"
-version = 0.5
+version = 0.4
 
 # sample parameters, should return a Dict of model kwargs 
 """
@@ -66,7 +66,6 @@ function sample_params()
         1:Int(1e8), 
         10f0 .^(-4:0.1:-3),
         10f0 .^(-2:1.0:3.0),
-        ["lin"]
         )
     argnames = (
         :z_dim, 
@@ -87,7 +86,6 @@ function sample_params()
         :init_seed, 
         :lr,
         :fm_alpha,
-        :adv_loss
         )
     parameters = (;zip(argnames, map(x->sample(x, 1)[1], par_vec))...)
     fm_depth = if parameters.batch_norm
@@ -123,10 +121,9 @@ function fit(data, parameters, save_parameters, ac, seed)
     epoch_iters = ceil(Int, length(data[1][2])/parameters.batch_size)
     save_iter = epoch_iters*10
     try
-         global info, fit_t, _, _, _ = @timed fit!(model, data[1][1];
-            max_train_time=20*3600/max_seed/anomaly_classes, workers=4,
-            n_epochs = n_epochs, save_iter = save_iter, save_weights = false, 
-            save_path = res_save_path)
+         global info, fit_t, _, _, _ = @timed fit!(model, data[1][1]; 
+            max_train_time=20*3600/max_seed/anomaly_classes, workers=4, 
+            n_epochs = n_epochs, save_iter = save_iter, save_weights = false, save_path = res_save_path)
     catch e
         # return an empty array if fit fails so nothing is computed
         @info "Failed training due to \n$e"
@@ -206,8 +203,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
                         :fixed_mask_epochs,
                         :batch_norm,
                         :init_type,
-                        :tau_mask,
-                        :adv_loss
+                        :tau_mask
                         ))
                     training_info, results = fit(data, edited_parameters, save_parameters, i, seed)
 

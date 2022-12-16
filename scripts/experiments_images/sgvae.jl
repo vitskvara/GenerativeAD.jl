@@ -54,8 +54,8 @@ function sample_params()
         vcat(10 .^(-1.0:3.0), 0.5 .* 10 .^(-1.0:3.0)),
         vcat(10 .^(-1.0:3.0), 0.5 .* 10 .^(-1.0:3.0)),
         0.1:0.1:0.3,
-        0:3,
-        2 .^(4:7), 
+        [1],
+        2 .^(5:7), 
         [3, 4],
         [true, false],
         ["leakyrelu", "tanh"],
@@ -109,7 +109,7 @@ function fit(data, parameters, save_parameters, ac, seed)
     mkpath(res_save_path)
 
     # fit train data
-    n_epochs = 200
+    n_epochs = 50
     epoch_iters = ceil(Int, length(data[1][2])/parameters.batch_size)
     save_iter = epoch_iters*10
     try

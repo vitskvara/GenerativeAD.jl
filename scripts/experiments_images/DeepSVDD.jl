@@ -39,17 +39,17 @@ modelname ="DeepSVDD"
 
 function sample_params()
 	# first sample the number of layers
-	nlayers = rand(2:4)
+	nlayers = rand(3:4)
 	kernelsizes = reverse((3,5,7,9)[1:nlayers])
 	channels = reverse((16,32,64,128)[1:nlayers])
 	scalings = reverse((1,2,2,2)[1:nlayers])
 	
 	par_vec = (
 		2 .^(3:8), 
-		10f0 .^(-4:-3), 
-		10f0 .^(-4:-3),
+		10f0 .^ (-4:0.1:-3), 
+		10f0 .^ (-4:0.1:-3),
 		[true, false], 
-		2 .^ (6:7), 
+		2 .^ (5:7), 
 		["relu", "swish", "tanh"], 
 		["soft-boundary", "one-class"],
 		[0.01f0, 0.1f0, 0.5f0, 0.99f0], # paper 0.1
@@ -76,11 +76,13 @@ end
 
 function fit(data, parameters)
 	# define models (Generator, Discriminator)
+	nepochs = 50
+	iters = floor(Int,(size(data[1][1])[4]*nepochs/parameters.batch_size)
 	all_parameters = merge(
 		parameters, 
 		(
 			idim=size(data[1][1])[1:3], 
-			iters=5000, 
+			iters=iters, 
 			check_every=30, 
 			ae_check_every = 200,
 			patience=10, 

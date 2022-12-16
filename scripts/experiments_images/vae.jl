@@ -46,12 +46,12 @@ Should return a named tuple that contains a sample of model parameters.
 """
 function sample_params()
 	# first sample the number of layers
-	nlayers = rand(2:4)
+	nlayers = rand(3:4)
 	kernelsizes = reverse((3,5,7,9)[1:nlayers])
 	channels = reverse((16,32,64,128)[1:nlayers])
 	scalings = reverse((1,2,2,2)[1:nlayers])
 	
-	par_vec = (2 .^(3:8), 10f0 .^(-4:-3), 2 .^ (5:7), ["relu", "swish"], 1:Int(1e8))
+	par_vec = (2 .^(3:8), 10f0 .^ (-4:0.1:-3), 2 .^ (5:7), ["relu", "swish"], 1:Int(1e8))
 	argnames = (:zdim, :lr, :batchsize, :activation, :init_seed)
 	parameters = (;zip(argnames, map(x->sample(x, 1)[1], par_vec))...)
 	return merge(parameters, (nlayers=nlayers, kernelsizes=kernelsizes,
@@ -96,10 +96,12 @@ function fit(data, parameters)
 
 	# construct model - constructor should only accept kwargs
 	model = GenerativeAD.Models.conv_vae_constructor(;idim=idim, parameters...) |> gpu
+	nepochs = 50
+	max_iters = floor(Int,(size(data[1][1])[4]*nepochs/parameters.batchsize)
 
 	# fit train data
 	try
-		global info, fit_t, _, _, _ = @timed fit!(model, data, loss; max_iters = 10000, max_train_time=23*3600/max_seed/anomaly_classes/4, 
+		global info, fit_t, _, _, _ = @timed fit!(model, data, loss; max_iters = max_iters, max_train_time=23*3600/max_seed/anomaly_classes/4, 
 			patience=10, check_interval=50, parameters...)
 	catch e
 		# return an empty array if fit fails so nothing is computed

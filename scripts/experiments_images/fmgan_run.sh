@@ -3,7 +3,7 @@
 #SBATCH --nodes=1 --ntasks-per-node=2 --cpus-per-task=2
 #SBATCH --gres=gpu:1
 #SBATCH --partition=gpu
-#SBATCH --mem=80G
+#SBATCH --mem=40G
 
 MAX_SEED=$1
 DATASET=$2
@@ -18,4 +18,4 @@ source ${HOME}/sgad-env/bin/activate
 export PYTHON="${HOME}/sgad-env/bin/python"
 julia --project -e 'using Pkg; Pkg.build("PyCall"); @info("SETUP DONE")'
 
-julia ./fmgan.jl ${MAX_SEED} $DATASET ${ANOMALY_CLASSES} $METHOD $CONTAMINATION
+julia ./fmganpy10.jl ${MAX_SEED} $DATASET ${ANOMALY_CLASSES} $METHOD $CONTAMINATION

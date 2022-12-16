@@ -46,7 +46,7 @@ version = 0.4
 Should return a named tuple that contains a sample of model parameters.
 """
 function sample_params()
-    par_vec = (2 .^(3:8), 2 .^(3:6), 2 .^(3:6), 2 .^(4:7), ["orthogonal", "kaiming", "xavier", "normal"], 
+    par_vec = (2 .^(3:8), 2 .^(3:6), 2 .^(3:6), 2 .^(5:7), ["orthogonal", "normal"], 
         0.01:0.01:0.1, 1:Int(1e8), 0.1:0.2:1,  10f0 .^(-4:0.1:-3), ["linear", "conv"], ["linear", "log"])
     argnames = (:z_dim, :h_channels, :disc_h_dim, :batch_size, :init_type, 
         :init_gain, :init_seed, :lambda_mask, :lr, :disc_model, :adv_loss)
@@ -74,7 +74,7 @@ function fit(data, parameters, ac, seed)
     mkpath(res_save_path)
 
     # fit train data
-    n_epochs = 100
+    n_epochs = 50
     epoch_iters = ceil(Int, length(data[1][2])/parameters.batch_size)
     save_iter = epoch_iters*10
     try

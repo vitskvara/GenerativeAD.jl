@@ -51,8 +51,8 @@ function sample_params()
 	
 	par_vec = (
 		2 .^(3:8), 
-		10f0 .^(-4:-3),
-		10f0 .^(-4:-3), 
+		10f0 .^ (-4:0.1:-3),
+		10f0 .^ (-4:0.1:-3), 
 		2 .^ (5:7), 
 		["relu", "swish", "tanh"], 
 		1:Int(1e8),
@@ -85,15 +85,15 @@ Final parameters is a named tuple of names and parameter values that are used fo
 """
 function fit(data, parameters)
 	# construct model - constructor should only accept kwargs
+	nepochs = 50
+	max_iters = floor(Int,(size(data[1][1])[4]*nepochs/parameters.batchsize))
 	default_params = (idim = size(data[1][1])[1:3], kappa = 1f0, weight_clip=0.1, lr_gan = 0.00005, lr_enc = 0.001, batch_size=128, 
-		patience=10, check_every=30, iters=10000, mtt=82800, n_critic=5, usegpu=true)
-	
+		patience=10, check_every=30, iters=max_iters, mtt=82800, n_critic=5, usegpu=true)
 
 	# construct model - constructor should only accept kwargs
 	model = GenerativeAD.Models.fanogan_constructor(;idim = size(data[1][1])[1:3], parameters...) |> gpu
-
-	max_iter = 50 # this should be enough
-
+	
+	
 	# fit train data
 	
 	try

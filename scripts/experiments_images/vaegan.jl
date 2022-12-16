@@ -49,7 +49,7 @@ function sample_params()
     par_vec = (
         2 .^(3:8), 
         2 .^(3:6), 
-        2 .^(4:7), 
+        2 .^(5:7), 
         [3, 4],
         [true, false],
         ["leakyrelu", "tanh"],
@@ -104,14 +104,12 @@ function fit(data, parameters, save_parameters, ac, seed)
     mkpath(res_save_path)
 
     # fit train data
-    n_epochs = 40
+    n_epochs = 50
     epoch_iters = ceil(Int, length(data[1][2])/parameters.batch_size)
     save_iter = epoch_iters*10
-    X_val = Array(permutedims(data[2][1], [4,3,2,1]));
-    y_val = data[2][2];
     try
-         global info, fit_t, _, _, _ = @timed fit!(model, data[1][1]; X_val=X_val, y_val=y_val,
-            max_train_time=20*3600/max_seed/anomaly_classes, workers=4, val_samples=10,
+         global info, fit_t, _, _, _ = @timed fit!(model, data[1][1]; 
+            max_train_time=20*3600/max_seed/anomaly_classes, workers=4,
             n_epochs = n_epochs, save_iter = save_iter, save_weights = false, save_path = res_save_path)
     catch e
         # return an empty array if fit fails so nothing is computed
